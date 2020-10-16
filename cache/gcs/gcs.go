@@ -19,15 +19,17 @@ const Scheme = "gcs"
 
 func init() {
 	cache.RegisterCache(Scheme, func(ctx context.Context, uri *url.URL) (cache.Cache, error) {
-		ttlInDays := utils.URLValuesGetInt(uri.Query(), "ttl_in_days")
-		return New(ctx, uri.Host, uri.Path, ttlInDays)
+		ttlInDays := utils.URLValuesGetInt(uri.Query(), "ttl_in_days", 0)
+		maxReads := utils.URLValuesGetInt(uri.Query(), "max_reads", defaultMaxConcurrentReads)
+		maxWrites := utils.URLValuesGetInt(uri.Query(), "max_writes", defaultMaxConcurrentWrites)
+		return New(ctx, uri.Host, uri.Path, maxReads, maxWrites, ttlInDays)
 	})
 }
 
-// See https://cloud.google.com/storage/docs/request-rate
+// Loosely based on https://cloud.google.com/storage/docs/request-rate
 const (
-	maxConcurrentReads  = 200
-	maxConcurrentWrites = 100
+	defaultMaxConcurrentReads  = 1000
+	defaultMaxConcurrentWrites = 200
 )
 
 var (
@@ -41,7 +43,7 @@ type GCSCache struct {
 	pathPrefix string
 }
 
-func New(ctx context.Context, bucket, pathPrefix string, ttlInDays int) (cache.Cache, error) {
+func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, maxConcurrentWrites, ttlInDays int) (cache.Cache, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, err
@@ -53,23 +55,25 @@ func New(ctx context.Context, bucket, pathPrefix string, ttlInDays int) (cache.C
 		pathPrefix: pathPrefix,
 	}
 
+	lifecycleRules := []storage.LifecycleRule{}
 	if ttlInDays > 0 {
-		if _, err := gcsCache.bucket.Update(ctx, storage.BucketAttrsToUpdate{
-			Lifecycle: &storage.Lifecycle{
-				Rules: []storage.LifecycleRule{
-					{
-						Action: storage.LifecycleAction{
-							Type: storage.DeleteAction,
-						},
-						Condition: storage.LifecycleCondition{
-							DaysSinceCustomTime: int64(ttlInDays),
-						},
-					},
+		lifecycleRules = []storage.LifecycleRule{
+			{
+				Action: storage.LifecycleAction{
+					Type: storage.DeleteAction,
+				},
+				Condition: storage.LifecycleCondition{
+					DaysSinceCustomTime: int64(ttlInDays),
 				},
 			},
-		}); err != nil {
-			return nil, fmt.Errorf("unable to apply TTL lifecycle condition: %w", err)
 		}
+	}
+	if _, err := gcsCache.bucket.Update(ctx, storage.BucketAttrsToUpdate{
+		Lifecycle: &storage.Lifecycle{
+			Rules: lifecycleRules,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("unable to apply TTL lifecycle condition: %w", err)
 	}
 
 	return cache.NewGatedCache(gcsCache, maxConcurrentReads, maxConcurrentWrites)

@@ -5,21 +5,19 @@ import (
 	"strconv"
 )
 
-func URLValuesGetBool(u url.Values, name string) bool {
-	v := u.Get(name)
-	if v == "" {
-		return false
+func URLValuesGetBool(u url.Values, name string, defaultValue bool) bool {
+	if v := u.Get(name); v != "" {
+		switch v[0] {
+		case 'y', 't', 'T', '1':
+			return true
+		}
 	}
-	switch v[0] {
-	case 'y', 't', 'T', '1':
-		return true
-	}
-	return false
+	return defaultValue
 }
 
-func URLValuesGetInt(u url.Values, name string) int {
+func URLValuesGetInt(u url.Values, name string, defaultValue int) int {
 	if v, err := strconv.Atoi(u.Get(name)); err == nil {
 		return v
 	}
-	return 0
+	return defaultValue
 }
