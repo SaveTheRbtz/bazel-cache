@@ -2,7 +2,6 @@ package gcs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -30,11 +29,6 @@ func init() {
 const (
 	defaultMaxConcurrentReads  = 1000
 	defaultMaxConcurrentWrites = 200
-)
-
-var (
-	ErrIncompleteWrite       = errors.New("incomplete write")
-	ErrMissingDigestMetadata = errors.New("missing digest metadata")
 )
 
 type GCSCache struct {
