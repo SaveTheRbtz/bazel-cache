@@ -18,7 +18,7 @@ const Scheme = "gcs"
 
 func init() {
 	cache.RegisterCache(Scheme, func(ctx context.Context, uri *url.URL) (cache.Cache, error) {
-		ttlInDays := utils.URLValuesGetInt(uri.Query(), "ttl_in_days", 0)
+		ttlInDays := utils.URLValuesGetInt(uri.Query(), "ttl_days", 0)
 		maxReads := utils.URLValuesGetInt(uri.Query(), "max_reads", defaultMaxConcurrentReads)
 		maxWrites := utils.URLValuesGetInt(uri.Query(), "max_writes", defaultMaxConcurrentWrites)
 		return New(ctx, uri.Host, uri.Path, maxReads, maxWrites, ttlInDays)
