@@ -1,15 +1,8 @@
-IMAGE :=
-PWD := $(shell pwd)
+IMAGE := znly/bazel-cache
 
 .PHONY: bazel-cache
 bazel-cache:
-	go build \
-		-ldflags "-s -w" \
-		-trimpath \
-		-o $(@) \
-		.
+	go build -ldflags "-s -w" -trimpath -o $(@) .
 
 image:
-	docker build \
-		-t znly/bazel-cache \
-		.
+	docker build -t $(IMAGE) .
