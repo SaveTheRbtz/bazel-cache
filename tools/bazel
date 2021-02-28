@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+import os
+import json
+import sys
+import subprocess
+
+CACHE_URL = "https://MY-CLOUD-RUN-SERVICE.a.run.app"
+CACHE_CONFIG_ARG = "--config=cache"
+
+def google_application_credentials():
+    return os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or \
+            os.path.join(os.environ["HOME"], ".config/gcloud/application_default_credentials.json")
+
+def is_google_identity_a_user():
+    with open(google_application_credentials()) as f:
+        data = json.load(f)
+        return data.get("type") == "authorized_user"
+
+def get_identity_token(audiences):
+    cmd = ["gcloud", "auth", "print-identity-token"]
+    if not is_google_identity_a_user():
+        cmd += ["--audiences=%s" % audiences]
+    return subprocess.check_output(cmd).rstrip()
+
+def cache_enabled(argv):
+    for arg in argv:
+        if arg == CACHE_CONFIG_ARG:
+            return True
+    return False
+
+def main(argv):
+    bazel=os.environ["BAZEL_REAL"]
+    command = argv[1]
+    args = argv[2:]
+    if cache_enabled(argv):
+        args = [
+            "--remote_header=Authorization=Bearer %s" % get_identity_token(CACHE_URL),
+        ] + args
+    os.execvp(bazel, [bazel, command] + args)
+    return 1
+
+sys.exit(main(sys.argv))
