@@ -16,6 +16,7 @@ import (
 	"google.golang.org/genproto/googleapis/bytestream"
 	"google.golang.org/grpc"
 	_ "google.golang.org/grpc/encoding/gzip" // Register gzip support.
+	"google.golang.org/grpc/reflection"
 
 	"github.com/znly/bazel-cache/cache"
 	_ "github.com/znly/bazel-cache/cache/disk"
@@ -79,6 +80,7 @@ var ServeCmd = &cobra.Command{
 		pb.RegisterCapabilitiesServer(grpcServer, cs)
 		pb.RegisterContentAddressableStorageServer(grpcServer, cs)
 		bytestream.RegisterByteStreamServer(grpcServer, cs)
+		reflection.Register(grpcServer)
 
 		return grpcServer.Serve(lis)
 	},
