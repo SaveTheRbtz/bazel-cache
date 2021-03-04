@@ -2,12 +2,14 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"time"
 
 	"github.com/znly/bazel-cache/utils"
+	"google.golang.org/api/googleapi"
 
 	"cloud.google.com/go/storage"
 
@@ -82,9 +84,21 @@ func (g *GCSCache) object(kind cache.EntryKind, hash string) *storage.ObjectHand
 }
 
 func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle) (*storage.ObjectAttrs, error) {
-	return object.Update(ctx, storage.ObjectAttrsToUpdate{
+	attrs, err := object.Update(ctx, storage.ObjectAttrsToUpdate{
 		CustomTime: time.Now(),
 	})
+	var gerr *googleapi.Error
+	if err != nil && errors.As(err, &gerr) {
+		for _, e := range gerr.Errors {
+			// Are we updating the object from too many calls in parallel?
+			// If so, no big deal since somebody else is bumping the metadata,
+			// so we can juse issue a Metadata fetch.
+			if e.Reason == "conflict" {
+				return object.Attrs(ctx)
+			}
+		}
+	}
+	return attrs, err
 }
 
 // Before being downloaded, each object's existence is checked from the ActionResult object. Take that opportunity to
