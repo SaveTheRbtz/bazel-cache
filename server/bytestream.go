@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	pb "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -114,8 +115,22 @@ func (cs *cacheServer) Read(req *bytestream.ReadRequest, stream bytestream.ByteS
 	logger.With(zap.Bool("cache.hit", true)).Info("cache hit")
 
 	bufRdr := bufio.NewReaderSize(rdc, bufSize(resource.digest.SizeBytes))
+	buf := make([]byte, bufRdr.Size())
+
+	respPool := sync.Pool{
+		New: func() interface{} {
+			return &bytestream.ReadResponse{}
+		},
+	}
+
+	doSend := func(data []byte) error {
+		resp := respPool.Get().(*bytestream.ReadResponse)
+		defer respPool.Put(resp)
+		resp.Data = data
+		return stream.Send(resp)
+	}
+
 	for {
-		buf := make([]byte, bufRdr.Size())
 		n, err := bufRdr.Read(buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -123,9 +138,7 @@ func (cs *cacheServer) Read(req *bytestream.ReadRequest, stream bytestream.ByteS
 			}
 			return err
 		}
-		if err := stream.Send(&bytestream.ReadResponse{
-			Data: buf[:n],
-		}); err != nil {
+		if err := doSend(buf[:n]); err != nil {
 			return status.Error(codes.Internal, err.Error())
 		}
 	}
