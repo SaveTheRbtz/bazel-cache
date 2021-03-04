@@ -80,7 +80,7 @@ INFO: Build completed successfully, 136 total actions
 
 The reason it's faster is mostly due to how the gRPC remote protocol works vs HTTP and znly/bazel-cache spawns multiple calls to GCS in parallel on a per-file basis. Also, Cloud Run is much closer to GCS that our CI or developer machines are.
 
-# Automated Garbage Collection
+# Automatic Garbage Collection
 The `gcs://` URI can take a `ttl_days` parameter to enable automatic garbage collection. It is enabled via [Google Cloud Storage Object Lifecycle Management](https://cloud.google.com/storage/docs/lifecycle) by setting a `DaysSinceCustomTime` + `DeleteAction` on the bucket when it is started.
 
 When a hash is looked up by Bazel, `znly/bazel-cache` will determine if the hash exists by updating its `CustomTime`. This means that testing if an object exists (and fetching its metadata such as size) and bumping its `CustomTime` happens in a single pass.
@@ -115,9 +115,9 @@ done
 ## Pushing the Image
 Pull the znly/bazel-cache image and push it to your project'sgcr.io registry:
 ```
-docker pull znly/bazel-cache:0.0.1
-docker tag znly/bazel-cache:0.0.1 gcr.io/MYPROJECT/bazel-cache:0.0.1
-docker push gcr.io/MYPROJECT/bazel-cache:0.0.1
+docker pull znly/bazel-cache:0.0.2
+docker tag znly/bazel-cache:0.0.2 gcr.io/MYPROJECT/bazel-cache:0.0.2
+docker push gcr.io/MYPROJECT/bazel-cache:0.0.2
 ```
 
 ## Deploying the service
@@ -130,9 +130,9 @@ gcloud run deploy bazel-cache \
     --platform=managed \
     --port=9092 \
     --cpu=4 \
-    --memory=4Gi \
+    --memory=8Gi \
     '--args=serve,--loglevel,INFO,--port,:9092,--cache,gcs://MYBUCKET?ttl_days=30' \
-    --image=gcr.io/MYPROJECT/bazel-cache:0.0.1 \
+    --image=gcr.io/MYPROJECT/bazel-cache:0.0.2 \
     --concurrency=80
 ```
 
