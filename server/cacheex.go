@@ -85,8 +85,6 @@ func (c *CacheEx) GetProto(ctx context.Context, kind cache.EntryKind, digest *pb
 }
 
 func (c *CacheEx) Put(ctx context.Context, kind cache.EntryKind, digest *pb.Digest) (io.WriteCloser, error) {
-	fmt.Println("PUT", digest.Hash)
-
 	if utils.IsEmptyHash(digest.Hash) {
 		return utils.NopReadWriteCloser, nil
 	}
@@ -95,8 +93,6 @@ func (c *CacheEx) Put(ctx context.Context, kind cache.EntryKind, digest *pb.Dige
 }
 
 func (c *CacheEx) PutBytes(ctx context.Context, kind cache.EntryKind, digest *pb.Digest, data []byte) error {
-	fmt.Println("PUT BYTES", digest.Hash)
-
 	if utils.IsEmptyHash(digest.Hash) {
 		return nil
 	}
@@ -115,8 +111,6 @@ func (c *CacheEx) PutBytes(ctx context.Context, kind cache.EntryKind, digest *pb
 }
 
 func (c *CacheEx) PutProto(ctx context.Context, kind cache.EntryKind, digest *pb.Digest, msg proto.Message) error {
-	fmt.Println("PUT PROTO", digest.Hash)
-
 	if utils.IsEmptyHash(digest.Hash) {
 		return nil
 	}
