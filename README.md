@@ -115,9 +115,9 @@ done
 ## Pushing the Image
 Pull the znly/bazel-cache image and push it to your project'sgcr.io registry:
 ```
-docker pull znly/bazel-cache:0.0.2
-docker tag znly/bazel-cache:0.0.2 gcr.io/MYPROJECT/bazel-cache:0.0.2
-docker push gcr.io/MYPROJECT/bazel-cache:0.0.2
+docker pull znly/bazel-cache:0.0.3
+docker tag znly/bazel-cache:0.0.3 gcr.io/MYPROJECT/bazel-cache:0.0.3
+docker push gcr.io/MYPROJECT/bazel-cache:0.0.3
 ```
 
 ## Deploying the service
@@ -132,7 +132,7 @@ gcloud run deploy bazel-cache \
     --cpu=4 \
     --memory=8Gi \
     '--args=serve,--loglevel,INFO,--port,:9092,--cache,gcs://MYBUCKET?ttl_days=30' \
-    --image=gcr.io/MYPROJECT/bazel-cache:0.0.2 \
+    --image=gcr.io/MYPROJECT/bazel-cache:0.0.3 \
     --concurrency=80
 ```
 
