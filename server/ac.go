@@ -55,10 +55,10 @@ func (cs *cacheServer) acGetWithValidatedDependencies(ctx context.Context, diges
 	digestsToCheck := []*pb.Digest{}
 	digestsToCheckMu := &sync.Mutex{}
 
-	if result.StdoutDigest != nil {
+	if result.StdoutDigest != nil && utils.IsEmptyHash(result.StdoutDigest.Hash) == false {
 		digestsToCheck = append(digestsToCheck, result.StdoutDigest)
 	}
-	if result.StderrDigest != nil {
+	if result.StderrDigest != nil && utils.IsEmptyHash(result.StderrDigest.Hash) == false {
 		digestsToCheck = append(digestsToCheck, result.StderrDigest)
 	}
 
@@ -69,6 +69,9 @@ func (cs *cacheServer) acGetWithValidatedDependencies(ctx context.Context, diges
 	directoriesGroup, directoriesCtx := errgroup.WithContext(ctx)
 	for _, directory_ := range result.OutputDirectories {
 		directory := directory_
+		if utils.IsEmptyHash(directory.TreeDigest.Hash) {
+			continue
+		}
 		directoriesGroup.Go(func() error {
 			tree := &pb.Tree{}
 			if err := cs.cache.GetProto(directoriesCtx, cache.CAS, directory.TreeDigest, tree); err != nil {
@@ -76,6 +79,9 @@ func (cs *cacheServer) acGetWithValidatedDependencies(ctx context.Context, diges
 			}
 
 			for _, f := range tree.Root.GetFiles() {
+				if utils.IsEmptyHash(f.Digest.Hash) {
+					continue
+				}
 				digestsToCheckMu.Lock()
 				digestsToCheck = append(digestsToCheck, f.Digest)
 				digestsToCheckMu.Unlock()
@@ -83,6 +89,9 @@ func (cs *cacheServer) acGetWithValidatedDependencies(ctx context.Context, diges
 
 			for _, child := range tree.GetChildren() {
 				for _, f := range child.GetFiles() {
+					if utils.IsEmptyHash(f.Digest.Hash) {
+						continue
+					}
 					digestsToCheckMu.Lock()
 					digestsToCheck = append(digestsToCheck, f.Digest)
 					digestsToCheckMu.Unlock()

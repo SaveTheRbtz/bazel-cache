@@ -27,6 +27,9 @@ func (cs *cacheServer) FindMissingBlobs(ctx context.Context, req *pb.FindMissing
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, digest_ := range req.BlobDigests {
 		digest := digest_
+		if utils.IsEmptyHash(digest.Hash) {
+			continue
+		}
 		if err := utils.ValidateHash(digest.Hash, digest.SizeBytes); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
@@ -69,6 +72,11 @@ func (cs *cacheServer) BatchUpdateBlobs(ctx context.Context, req *pb.BatchUpdate
 			Status: &rpc_status.Status{Code: int32(codes.NotFound)},
 		}
 		resp.Responses = append(resp.Responses, updateResp)
+
+		if utils.IsEmptyHash(updateReq.Digest.Hash) {
+			updateResp.Status.Code = int32(codes.OK)
+			continue
+		}
 		eg.Go(func() error {
 			if err := cs.cache.PutBytes(ctx, cache.CAS, updateReq.Digest, updateReq.Data); err == nil {
 				updateResp.Status.Code = int32(codes.OK)
@@ -102,6 +110,10 @@ func (cs *cacheServer) BatchReadBlobs(ctx context.Context, req *pb.BatchReadBlob
 			Status: &rpc_status.Status{Code: int32(codes.DataLoss)},
 		}
 		resp.Responses = append(resp.Responses, readResp)
+		if utils.IsEmptyHash(readResp.Digest.Hash) {
+			readResp.Status.Code = int32(codes.OK)
+			continue
+		}
 		eg.Go(func() error {
 			if data, err := cs.cache.GetBytes(ctx, cache.CAS, readResp.Digest); err == nil {
 				readResp.Data = data
@@ -141,12 +153,14 @@ func (cs *cacheServer) GetTree(req *pb.GetTreeRequest, stream pb.ContentAddressa
 		Directories: make([]*pb.Directory, 0),
 	}
 
-	if err := utils.ValidateHash(req.RootDigest.Hash, req.RootDigest.SizeBytes); err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
+	if utils.IsEmptyHash(req.RootDigest.Hash) == false {
+		if err := utils.ValidateHash(req.RootDigest.Hash, req.RootDigest.SizeBytes); err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
 
-	if err := cs.readTreeInto(ctx, resp.Directories, req.RootDigest); err != nil {
-		return status.Error(codes.DataLoss, err.Error())
+		if err := cs.readTreeInto(ctx, resp.Directories, req.RootDigest); err != nil {
+			return status.Error(codes.DataLoss, err.Error())
+		}
 	}
 
 	if err := stream.Send(resp); err != nil {
