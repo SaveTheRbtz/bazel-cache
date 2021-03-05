@@ -8,12 +8,11 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/znly/bazel-cache/utils"
+	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
 
-	"cloud.google.com/go/storage"
-
 	"github.com/znly/bazel-cache/cache"
+	"github.com/znly/bazel-cache/utils"
 )
 
 const Scheme = "gcs"
@@ -37,6 +36,10 @@ type GCSCache struct {
 	client     *storage.Client
 	bucket     *storage.BucketHandle
 	pathPrefix string
+}
+
+func tomorrow() time.Time {
+	return time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 }
 
 func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, maxConcurrentWrites, ttlInDays int) (cache.Cache, error) {
@@ -83,22 +86,28 @@ func (g *GCSCache) object(kind cache.EntryKind, hash string) *storage.ObjectHand
 	return g.bucket.Object(path)
 }
 
-func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle) (*storage.ObjectAttrs, error) {
-	attrs, err := object.Update(ctx, storage.ObjectAttrsToUpdate{
-		CustomTime: time.Now(),
+func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle, t time.Time) error {
+	_, err := object.Update(ctx, storage.ObjectAttrsToUpdate{
+		CustomTime: t,
 	})
 	var gerr *googleapi.Error
 	if err != nil && errors.As(err, &gerr) {
 		for _, e := range gerr.Errors {
-			// Are we updating the object from too many calls in parallel?
-			// If so, no big deal since somebody else is bumping the metadata,
-			// so we can juse issue a Metadata fetch.
-			if e.Reason == "conflict" {
-				return object.Attrs(ctx)
+			switch e.Reason {
+			case "conflict":
+				// Are we updating the object from too many calls in parallel?
+				// If so, no big deal since somebody else is bumping the metadata,
+				// so we can juse issue a Metadata fetch.
+				return nil
+			case "invalid":
+				// Are we updating the object back in time? If so, it's fine too
+				// since it means the object exists and that its CustomTime is in
+				// the future.
+				return nil
 			}
 		}
 	}
-	return attrs, err
+	return err
 }
 
 // Before being downloaded, each object's existence is checked from the ActionResult object. Take that opportunity to
@@ -107,9 +116,25 @@ func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle) (*st
 func (g *GCSCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
 	obj := g.object(kind, hash)
 
-	attrs, err := g.touch(ctx, obj)
+	attrs, err := obj.Attrs(ctx)
 	if err != nil {
 		return false, 0, err
+	}
+
+	// We used to get the attributes by touch (bumping CustomTime), but it seems that that stresses GCS too much.
+	// Instead since GCS only supports day-level policies, round to the next day, and bump the CustomTime
+	// only if the existing one if different than what it should be. Concurrent updates are fine and should now
+	// represent the vast minority of updates. However, it means that setting a TTL to 1 day could result in weird
+	// behaviour.
+	if tmrw := tomorrow(); attrs.CustomTime.Before(tmrw) {
+		// if for some reason we can't update the time, since of object exists
+		// consider it's fine  because, in either way, worst case:
+		// 1. we return the error and bazel will re-executes the action
+		// 2. we don't return the error and the object will maybe be garbage
+		//    collected before it should, in which case it'll come back to 1.
+		//
+		// Let's be optimistic and chose 2 then.
+		g.touch(ctx, obj, tmrw)
 	}
 
 	return true, attrs.Size, nil
@@ -142,7 +167,7 @@ func (g *GCSCache) Put(ctx context.Context, kind cache.EntryKind, hash string, s
 
 	wtr := g.object(kind, hash).NewWriter(ctx)
 	wtr.ContentType = "application/octet-stream"
-	wtr.CustomTime = time.Now()
+	wtr.CustomTime = tomorrow()
 
 	return wtr, nil
 }
