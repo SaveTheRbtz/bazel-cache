@@ -75,6 +75,8 @@ var ServeCmd = &cobra.Command{
 			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
 				grpc_zap.UnaryServerInterceptor(zap.L()),
 			)),
+			grpc.ReadBufferSize(maxChunkSize),
+			grpc.WriteBufferSize(maxChunkSize),
 		)
 		pb.RegisterActionCacheServer(grpcServer, cs)
 		pb.RegisterCapabilitiesServer(grpcServer, cs)
