@@ -25,7 +25,8 @@ var rootCmd = &cobra.Command{
 	Use:   "bazel-cache",
 	Short: "Minimal cloud oriented Bazel cache",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		logConfig := zap.NewDevelopmentConfig()
+		logConfig := zap.NewProductionConfig()
+		logConfig.DisableCaller = true
 
 		logConfig.Level = zap.NewAtomicLevelAt(globalFlags.loglevel)
 		logger, err := logConfig.Build()
