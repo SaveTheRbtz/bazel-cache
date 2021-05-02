@@ -23,14 +23,16 @@ func init() {
 		ttlInDays := utils.URLValuesGetInt(uri.Query(), "ttl_days", 0)
 		maxReads := utils.URLValuesGetInt(uri.Query(), "max_reads", defaultMaxConcurrentReads)
 		maxWrites := utils.URLValuesGetInt(uri.Query(), "max_writes", defaultMaxConcurrentWrites)
-		return New(ctx, uri.Host, uri.Path, maxReads, maxWrites, ttlInDays)
+		hedgeTimeout := utils.URLValuesGetDuration(uri.Query(), "hedge_timeout", defaultHedgeTimeout)
+		return New(ctx, uri.Host, uri.Path, maxReads, maxWrites, ttlInDays, hedgeTimeout)
 	})
 }
 
 // Loosely based on https://cloud.google.com/storage/docs/request-rate
 const (
 	defaultMaxConcurrentReads  = 2000
-	defaultMaxConcurrentWrites = 200
+	defaultMaxConcurrentWrites = 300
+	defaultHedgeTimeout        = 600 * time.Millisecond
 )
 
 type GCSCache struct {
@@ -61,7 +63,7 @@ func filterErrorReasons(err error, reasons ...string) error {
 	return err
 }
 
-func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, maxConcurrentWrites, ttlInDays int) (cache.Cache, error) {
+func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, maxConcurrentWrites, ttlInDays int, hedgeTimeout time.Duration) (cache.Cache, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, err
@@ -101,7 +103,12 @@ func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, max
 		return nil, fmt.Errorf("unable to apply TTL lifecycle condition: %w", err)
 	}
 
-	return cache.NewGatedCache(gcsCache, maxConcurrentReads, maxConcurrentWrites)
+	hedgedCache, err := cache.NewHedgedCache(gcsCache, hedgeTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	return cache.NewGatedCache(hedgedCache, maxConcurrentReads, maxConcurrentWrites)
 }
 
 func (g *GCSCache) object(kind cache.EntryKind, hash string) *storage.ObjectHandle {

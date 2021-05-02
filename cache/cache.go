@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/znly/bazel-cache/utils"
+	"github.com/znly/bazel-cache/utils/hedged"
 )
 
 var (
@@ -52,6 +54,60 @@ func (c *GatedCache) Get(ctx context.Context, kind EntryKind, hash string, offse
 func (c *GatedCache) Put(ctx context.Context, kind EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
 	defer c.writeGate.Start().Done()
 	return c.cache.Put(ctx, kind, hash, size, offset)
+}
+
+type HedgedCache struct {
+	cache   Cache
+	timeout time.Duration
+}
+
+func NewHedgedCache(cache Cache, timeout time.Duration) (Cache, error) {
+	return &HedgedCache{
+		cache:   cache,
+		timeout: timeout,
+	}, nil
+}
+func (c *HedgedCache) Contains(ctx context.Context, kind EntryKind, hash string) (bool, int64, error) {
+	type containsResult struct {
+		exists bool
+		size   int64
+	}
+	v, err := hedged.Do(ctx, c.timeout, func(ctx context.Context) (interface{}, error) {
+		var (
+			res containsResult
+			err error
+		)
+		res.exists, res.size, err = c.cache.Contains(ctx, kind, hash)
+		return res, err
+	})
+	return v.(containsResult).exists, v.(containsResult).size, err
+}
+
+func (c *HedgedCache) Get(ctx context.Context, kind EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
+	type getResult struct {
+		rc   io.ReadCloser
+		size int64
+	}
+	v, err := hedged.Do(ctx, c.timeout, func(ctx context.Context) (interface{}, error) {
+		var (
+			res getResult
+			err error
+		)
+		res.rc, res.size, err = c.cache.Get(ctx, kind, hash, offset, length)
+		return res, err
+	})
+	return v.(getResult).rc, v.(getResult).size, err
+}
+
+func (c *HedgedCache) Put(ctx context.Context, kind EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
+	type putResult struct {
+		wc   io.WriteCloser
+		size int64
+	}
+	v, err := hedged.Do(ctx, c.timeout, func(ctx context.Context) (interface{}, error) {
+		return c.cache.Put(ctx, kind, hash, size, offset)
+	})
+	return v.(io.WriteCloser), err
 }
 
 // type CompressedCache struct {
