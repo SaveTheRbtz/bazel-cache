@@ -43,6 +43,24 @@ func tomorrow() time.Time {
 	return time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 }
 
+func filterErrorReasons(err error, reasons ...string) error {
+	if err == nil {
+		return nil
+	}
+
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) {
+		for _, e := range gerr.Errors {
+			for _, reason := range reasons {
+				if reason == e.Reason {
+					return nil
+				}
+			}
+		}
+	}
+	return err
+}
+
 func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, maxConcurrentWrites, ttlInDays int) (cache.Cache, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
@@ -67,12 +85,19 @@ func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, max
 				},
 			},
 		}
+
 	}
-	if _, err := gcsCache.bucket.Update(ctx, storage.BucketAttrsToUpdate{
+
+	_, err = gcsCache.bucket.Update(ctx, storage.BucketAttrsToUpdate{
 		Lifecycle: &storage.Lifecycle{
 			Rules: lifecycleRules,
 		},
-	}); err != nil {
+	})
+	if err := filterErrorReasons(
+		err,
+		"rateLimitExceeded", // starting too many services in parallel?
+		"backendError",      // also starting too many services in parallel?
+	); err != nil {
 		return nil, fmt.Errorf("unable to apply TTL lifecycle condition: %w", err)
 	}
 
@@ -91,24 +116,18 @@ func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle, t ti
 	_, err := object.Update(ctx, storage.ObjectAttrsToUpdate{
 		CustomTime: t,
 	})
-	var gerr *googleapi.Error
-	if err != nil && errors.As(err, &gerr) {
-		for _, e := range gerr.Errors {
-			switch e.Reason {
-			case "conflict":
-				// Are we updating the object from too many calls in parallel?
-				// If so, no big deal since somebody else is bumping the metadata,
-				// so we can juse issue a Metadata fetch.
-				return nil
-			case "invalid":
-				// Are we updating the object back in time? If so, it's fine too
-				// since it means the object exists and that its CustomTime is in
-				// the future.
-				return nil
-			}
-		}
-	}
-	return err
+
+	return filterErrorReasons(
+		err,
+		// Are we updating the object from too many calls in parallel?
+		// If so, no big deal since somebody else is bumping the metadata,
+		// so we can juse issue a Metadata fetch.
+		"conflict",
+		// Are we updating the object back in time? If so, it's fine too
+		// since it means the object exists and that its CustomTime is in
+		// the future.
+		"invalid",
+	)
 }
 
 // Before being downloaded, each object's existence is checked from the ActionResult object. Take that opportunity to
