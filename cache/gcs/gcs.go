@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -79,11 +80,11 @@ func New(ctx context.Context, bucket, pathPrefix string, maxConcurrentReads, max
 }
 
 func (g *GCSCache) object(kind cache.EntryKind, hash string) *storage.ObjectHandle {
-	path := string(kind) + "/" + hash
+	objPath := path.Join(string(kind), hash[:2], hash[2:4], hash[4:6], hash)
 	if g.pathPrefix != "" {
-		path = g.pathPrefix + "/" + path
+		objPath = path.Join(g.pathPrefix, objPath)
 	}
-	return g.bucket.Object(path)
+	return g.bucket.Object(objPath)
 }
 
 func (g *GCSCache) touch(ctx context.Context, object *storage.ObjectHandle, t time.Time) error {
