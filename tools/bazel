@@ -4,6 +4,13 @@ import json
 import sys
 import subprocess
 
+COMMANDS = (
+    "build",
+    "mobile-install",
+    "run",
+    "test",
+)
+
 CACHE_URL = "https://MY-CLOUD-RUN-SERVICE.a.run.app"
 CACHE_CONFIG_ARG = "--config=cache"
 
@@ -20,23 +27,25 @@ def get_identity_token(audiences):
     cmd = ["gcloud", "auth", "print-identity-token"]
     if not is_google_identity_a_user():
         cmd += ["--audiences=%s" % audiences]
-    return subprocess.check_output(cmd).rstrip()
+    return subprocess.check_output(cmd).rstrip().decode("utf-8")
 
-def cache_enabled(argv):
-    for arg in argv:
-        if arg == CACHE_CONFIG_ARG:
-            return True
-    return False
+def cache_enabled(args):
+    return CACHE_CONFIG_ARG in args
+
+def command_idx(args):
+    for command in COMMANDS:
+        try:
+            return args.index(command)
+        except ValueError:
+            continue
+    return -1
 
 def main(argv):
-    bazel=os.environ["BAZEL_REAL"]
-    command = argv[1]
-    args = argv[2:]
-    if cache_enabled(argv):
-        args = [
-            "--remote_header=Authorization=Bearer %s" % get_identity_token(CACHE_URL),
-        ] + args
-    os.execvp(bazel, [bazel, command] + args)
+    argv[0] = os.environ.get("BAZEL_REAL", argv[0])
+    idx = command_idx(argv)
+    if cache_enabled(argv) and idx >= 0:
+        argv.insert(idx+1, "--remote_header=Authorization=Bearer " + get_identity_token(CACHE_URL))
+    os.execvp(argv[0], argv)
     return 1
 
 sys.exit(main(sys.argv))
