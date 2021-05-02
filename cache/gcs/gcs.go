@@ -29,7 +29,7 @@ func init() {
 
 // Loosely based on https://cloud.google.com/storage/docs/request-rate
 const (
-	defaultMaxConcurrentReads  = 1000
+	defaultMaxConcurrentReads  = 2000
 	defaultMaxConcurrentWrites = 200
 )
 
