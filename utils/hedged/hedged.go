@@ -11,7 +11,7 @@ type result struct {
 }
 
 func Do(ctx context.Context, timeout time.Duration, f func(ctx context.Context) (interface{}, error)) (interface{}, error) {
-	hedgeCtx, hedgeCtxCancel := context.WithCancel(ctx)
+	hedgeCtx, hedgeCtxCancel := context.WithTimeout(ctx, timeout)
 	defer hedgeCtxCancel()
 
 	resCh := make(chan result, 1)
