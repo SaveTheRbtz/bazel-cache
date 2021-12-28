@@ -1,0 +1,8 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "hedged",
+    srcs = ["hedged.go"],
+    importpath = "github.com/znly/bazel-cache/utils/hedged",
+    visibility = ["//visibility:public"],
+)

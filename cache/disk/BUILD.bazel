@@ -1,0 +1,9 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "disk",
+    srcs = ["disk.go"],
+    importpath = "github.com/znly/bazel-cache/cache/disk",
+    visibility = ["//visibility:public"],
+    deps = ["//cache"],
+)
