@@ -48,6 +48,8 @@ func New(ctx context.Context, path string) (*IPFSCache, error) {
 		}
 	}
 
+	// TODO: periodically cleanup /tmp
+
 	_ = sh.FilesMkdir(ctx, "/tmp", shell.CidVersion(1))
 
 	return &IPFSCache{
@@ -108,6 +110,9 @@ func (c *IPFSCache) Put(ctx context.Context, kind cache.EntryKind, hash string, 
 	// XXX limit concurrency
 	go func() {
 		tmpName := filepath.Join("/", "tmp", uuid.New().String())
+
+		// TODO: trickle dag
+		// TODO: rabin/buzhash chunker
 		err := c.sh.FilesWrite(
 			ctx, tmpName, pr,
 			shell.FilesWrite.Offset(offset),
