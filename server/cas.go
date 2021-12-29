@@ -87,6 +87,10 @@ func (cs *cacheServer) BatchUpdateBlobs(ctx context.Context, req *pb.BatchUpdate
 		})
 	}
 
+	if err := eg.Wait(); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
 	return resp, nil
 }
 
@@ -123,6 +127,10 @@ func (cs *cacheServer) BatchReadBlobs(ctx context.Context, req *pb.BatchReadBlob
 			}
 			return nil
 		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return resp, nil
