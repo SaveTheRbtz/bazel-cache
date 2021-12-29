@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ipfs",
+    srcs = ["ipfs.go"],
+    importpath = "github.com/znly/bazel-cache/cache/ipfs",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cache",
+        "@com_github_ipfs_go_ipfs_api//:go-ipfs-api",
+    ],
+)

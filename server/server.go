@@ -21,6 +21,7 @@ import (
 	"github.com/znly/bazel-cache/cache"
 	_ "github.com/znly/bazel-cache/cache/disk"
 	_ "github.com/znly/bazel-cache/cache/gcs"
+	_ "github.com/znly/bazel-cache/cache/ipfs"
 )
 
 type cacheServer struct {
