@@ -182,7 +182,7 @@ func (cs *cacheServer) UpdateActionResult(ctx context.Context, req *pb.UpdateAct
 	}
 	if shouldWrite(req.ActionResult.StderrDigest, req.ActionResult.StderrRaw) {
 		eg.Go(func() error {
-			return cs.cache.PutBytes(ctx, cache.CAS, req.ActionResult.StdoutDigest, req.ActionResult.StderrRaw)
+			return cs.cache.PutBytes(ctx, cache.CAS, req.ActionResult.StderrDigest, req.ActionResult.StderrRaw)
 		})
 	}
 
