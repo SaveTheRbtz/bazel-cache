@@ -381,8 +381,8 @@ def go_dependencies():
     go_repository(
         name = "com_github_google_uuid",
         importpath = "github.com/google/uuid",
-        sum = "h1:EVhdT+1Kseyi1/pUmXKaFxYsDNy9RQYkMWRH68J/W7Y=",
-        version = "v1.1.2",
+        sum = "h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=",
+        version = "v1.3.0",
     )
     go_repository(
         name = "com_github_googleapis_gax_go_v2",
@@ -696,8 +696,8 @@ def go_dependencies():
     )
     go_repository(
         name = "com_github_libp2p_go_libp2p_core",
-        importpath = "github.com/libp2p/go-libp2p-core",
         build_file_proto_mode = "disable",  # keep
+        importpath = "github.com/libp2p/go-libp2p-core",
         sum = "h1:XS+Goh+QegCDojUZp00CaPMfiEADCrLjNZskWE7pvqs=",
         version = "v0.6.1",
     )

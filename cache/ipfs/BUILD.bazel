@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//cache",
+        "@com_github_google_uuid//:uuid",
         "@com_github_ipfs_go_ipfs_api//:go-ipfs-api",
     ],
 )

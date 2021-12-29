@@ -8,6 +8,7 @@ require (
 	github.com/bazelbuild/remote-apis v0.0.0-20201209220655-9e72daff42c9
 	github.com/golang/protobuf v1.4.3
 	github.com/golang/snappy v0.0.3 // indirect
+	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.2
 	github.com/ipfs/go-ipfs-api v0.3.0
 	github.com/klauspost/compress v1.11.8 // indirect
