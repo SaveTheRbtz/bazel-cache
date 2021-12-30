@@ -7,10 +7,12 @@ require (
 	cloud.google.com/go/storage v1.13.0
 	github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6 // indirect
 	github.com/bazelbuild/remote-apis v0.0.0-20201209220655-9e72daff42c9
+	github.com/dgraph-io/badger v1.6.2 // indirect
+	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.2
-	github.com/klauspost/compress v1.11.8
+	github.com/klauspost/compress v1.12.3
 	github.com/mostynb/go-grpc-compression v1.1.6
 	github.com/ogier/pflag v0.0.1
 	github.com/pierrec/lz4 v2.6.0+incompatible // indirect

@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "badger",
+    srcs = ["badger.go"],
+    importpath = "github.com/znly/bazel-cache/cache/badger",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//cache",
+        "@com_github_dgraph_io_badger//:badger",
+        "@com_github_dgraph_io_badger//options",
+    ],
+)

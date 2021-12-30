@@ -17,6 +17,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//cache",
+        "//cache/badger",
         "//cache/disk",
         "//cache/gcs",
         "//utils",
