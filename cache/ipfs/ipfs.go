@@ -62,8 +62,6 @@ func (c *IPFSCache) objectPath(kind cache.EntryKind, hash string) string {
 }
 
 func (c *IPFSCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
-	ctx = context.TODO()
-
 	fi, err := c.sh.FilesStat(ctx, c.objectPath(kind, hash))
 	if err != nil {
 		return false, 0, err
@@ -72,8 +70,6 @@ func (c *IPFSCache) Contains(ctx context.Context, kind cache.EntryKind, hash str
 }
 
 func (c *IPFSCache) Get(ctx context.Context, kind cache.EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
-	ctx = context.TODO()
-
 	_, size, err := c.Contains(ctx, kind, hash)
 	if err != nil {
 		return nil, 0, err
@@ -102,8 +98,6 @@ func (c *IPFSCache) Get(ctx context.Context, kind cache.EntryKind, hash string, 
 }
 
 func (c *IPFSCache) Put(ctx context.Context, kind cache.EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
-	ctx = context.TODO()
-
 	pr, pw := io.Pipe()
 
 	// XXX atomic write
