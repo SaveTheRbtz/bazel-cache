@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/url"
 	"path/filepath"
+	"sync"
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
@@ -23,9 +24,19 @@ func init() {
 	})
 }
 
-type SectionReadCloser struct {
-	io.Reader
+type WriteCloser struct {
+	done chan struct{}
+	once *sync.Once
+
+	io.Writer
 	io.Closer
+}
+
+func (w WriteCloser) Close() error {
+	w.once.Do(func() {
+		close(w.done)
+	})
+	return nil
 }
 
 type BadgerCache struct {
@@ -109,27 +120,22 @@ func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string
 		return nil, fmt.Errorf("offsets are not supported yet")
 	}
 
-	pr, pw := io.Pipe()
-
+	buf := new(bytes.Buffer)
+	done := make(chan struct{})
 	go func() {
-		defer pr.Close()
-		buf := make([]byte, size)
-		_, err := io.ReadFull(pr, buf)
-		if err != nil {
-			pw.CloseWithError(err)
-			return
-		}
-		pw.Close()
-
-		// XXX
+		<-done
 		_ = c.db.Update(func(txn *badger.Txn) error {
-			e := badger.NewEntry([]byte(c.objectPath(kind, hash)), buf)
+			e := badger.NewEntry([]byte(c.objectPath(kind, hash)), buf.Bytes())
 			err := txn.SetEntry(e)
 			return err
 		})
 	}()
 
-	return pw, nil
+	return WriteCloser{
+		once:   &sync.Once{},
+		done:   done,
+		Writer: buf,
+	}, nil
 }
 
 func (c *BadgerCache) Close() error {
