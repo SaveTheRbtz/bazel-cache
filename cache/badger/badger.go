@@ -124,6 +124,12 @@ func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string
 	done := make(chan struct{})
 	go func() {
 		<-done
+
+		// no need to write corrupted data
+		if int64(buf.Len()) != size {
+			return
+		}
+		
 		_ = c.db.Update(func(txn *badger.Txn) error {
 			e := badger.NewEntry([]byte(c.objectPath(kind, hash)), buf.Bytes())
 			err := txn.SetEntry(e)
