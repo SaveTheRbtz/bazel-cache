@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"path/filepath"
 	"sync"
+	"time"
 
-	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	badger "github.com/dgraph-io/badger/v3"
 
 	"github.com/znly/bazel-cache/cache"
 )
@@ -47,10 +47,7 @@ type BadgerCache struct {
 
 func New(ctx context.Context, path string) (*BadgerCache, error) {
 	opts := badger.DefaultOptions(path)
-	opts.ValueThreshold = 1024
-	opts.SyncWrites = false
-	opts.TableLoadingMode = options.MemoryMap
-	opts.ValueLogLoadingMode = options.MemoryMap
+	opts.ValueThreshold = 4096
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -129,9 +126,9 @@ func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string
 		if int64(buf.Len()) != size {
 			return
 		}
-		
+
 		_ = c.db.Update(func(txn *badger.Txn) error {
-			e := badger.NewEntry([]byte(c.objectPath(kind, hash)), buf.Bytes())
+			e := badger.NewEntry([]byte(c.objectPath(kind, hash)), buf.Bytes()).WithTTL(7 * 24 * time.Hour)
 			err := txn.SetEntry(e)
 			return err
 		})
