@@ -7,7 +7,6 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//cache",
-        "@com_github_dgraph_io_badger//:badger",
-        "@com_github_dgraph_io_badger//options",
+        "@com_github_dgraph_io_badger_v3//:badger",
     ],
 )
