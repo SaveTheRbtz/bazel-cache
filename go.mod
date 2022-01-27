@@ -5,7 +5,7 @@ go 1.15
 require (
 	cloud.google.com/go v0.78.0 // indirect
 	cloud.google.com/go/storage v1.13.0
-	github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127020425-bc1debbaf117
+	github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127073547-272f866078a2
 	github.com/bazelbuild/remote-apis v0.0.0-20201209220655-9e72daff42c9
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.2

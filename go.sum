@@ -45,6 +45,8 @@ github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127020425-bc1debbaf117 h1:raCREwYiQUb/n8NIn9KQTsE1mqnfOQ8L/kl4cf02jOM=
 github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127020425-bc1debbaf117/go.mod h1:DAF2721HKYqs1sBEyfH6NNp4PZX/2VqsgPQx3GW0veA=
+github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127073547-272f866078a2 h1:Z7R6x4H5K+qDxhvkhTlVDwL9/yBm8bAUYIxj+Wc0/BE=
+github.com/SaveTheRbtz/zstd-seekable-format-go v0.0.0-20220127073547-272f866078a2/go.mod h1:DAF2721HKYqs1sBEyfH6NNp4PZX/2VqsgPQx3GW0veA=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=

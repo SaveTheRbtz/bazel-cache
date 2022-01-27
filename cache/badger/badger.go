@@ -83,7 +83,7 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, en
 	wCtx, cancel := context.WithCancel(ctx)
 
 	pr, pw := io.Pipe()
-	chunker, err := fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 4 * 1024, MaxSize: 16 * 1024})
+	chunker, err := fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 32 * 1024, MaxSize: 127 * 1024})
 	if err != nil {
 		cancel()
 		pw.CloseWithError(err)
@@ -131,119 +131,23 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, en
 	return &w, nil
 }
 
-type chunkedReader struct {
-	ctx context.Context
-
+type readEnv struct {
 	kind cache.EntryKind
 	hash string
 
-	dec    seekable.ZSTDDecoder
-	sd     seekable.Decoder
-	offset int64
-
-	cancel context.CancelFunc
-
-	db     *badger.DB
-	logger *zap.Logger
+	db *badger.DB
 }
 
-func NewChunkedReader(ctx context.Context, logger *zap.Logger, db *badger.DB, dec seekable.ZSTDDecoder, kind cache.EntryKind, hash string) (*chunkedReader, error) {
-	wCtx, cancel := context.WithCancel(ctx)
-
-	r := chunkedReader{
-		ctx: wCtx,
-
-		kind: kind,
-		hash: hash,
-
-		dec:    dec,
-		logger: logger,
-
-		cancel: cancel,
-
-		db: db,
-	}
-
-	footer, err := r.GetFrameByID(-1)
-	if err != nil {
-		return nil, err
-	}
-
-	r.sd, err = seekable.NewDecoder(footer, dec, seekable.WithRLogger(logger))
-	if err != nil {
-		return nil, err
-	}
-
-	return &r, nil
+func (r *readEnv) ReadFooter() ([]byte, error) {
+	return r.GetFrameByIndex(seekable.FrameOffsetEntry{ID: -1})
 }
 
-func (r *chunkedReader) Read(p []byte) (n int, err error) {
-	offset, n, err := r.read(p, r.offset)
-
-	if err != nil && !errors.Is(err, io.EOF) {
-		return
-	}
-	r.offset = offset
-	return
+func (r *readEnv) ReadSkipFrame(int64) ([]byte, error) {
+	return r.ReadFooter()
 }
 
-func (r *chunkedReader) read(dst []byte, off int64) (int64, int, error) {
-	if off >= r.sd.Size() {
-		return 0, 0, io.EOF
-	}
-	if off < 0 {
-		return 0, 0, fmt.Errorf("offset before the start of the file: %d", off)
-	}
-
-	index := r.sd.GetIndexByDecompOffset(uint64(off))
-	if index == nil {
-		return 0, 0, fmt.Errorf("failed to get index by offest: %d", off)
-	}
-	if off < int64(index.DecompOffset) || off > int64(index.DecompOffset)+int64(index.DecompSize) {
-		return 0, 0, fmt.Errorf("offset outside of index bounds: %d: min: %d, max: %d",
-			off, int64(index.DecompOffset), int64(index.DecompOffset)+int64(index.DecompSize))
-	}
-
-	var decompressed []byte
-
-	src, err := r.GetFrameByID(index.ID)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get frame offset at: %d, %w", index.CompOffset, err)
-	}
-
-	if len(src) != int(index.CompSize) {
-		return 0, 0, fmt.Errorf(
-			"index data mismatch: %d, len(src): %d, len(dst): %d, index: %+v\n",
-			off, len(src), len(dst), index)
-	}
-
-	decompressed, err = r.dec.DecodeAll(src, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to decompress data data at: %d, %w", index.CompOffset, err)
-	}
-
-	if len(decompressed) != int(index.DecompSize) {
-		return 0, 0, fmt.Errorf(
-			"index data mismatch: %d, len(decompressed): %d, len(dst): %d, index: %+v\n",
-			off, len(decompressed), len(dst), index)
-	}
-
-	offsetWithinFrame := uint64(off) - index.DecompOffset
-
-	size := uint64(len(decompressed)) - offsetWithinFrame
-	if size > uint64(len(dst)) {
-		size = uint64(len(dst))
-	}
-
-	r.logger.Debug("decompressed", zap.Uint64("offsetWithinFrame", offsetWithinFrame), zap.Uint64("end", offsetWithinFrame+size),
-		zap.Uint64("size", size), zap.Int("lenDecompressed", len(decompressed)), zap.Int("lenDst", len(dst)), zap.Object("index", index))
-	copy(dst, decompressed[offsetWithinFrame:offsetWithinFrame+size])
-
-	return off + int64(size), int(size), nil
-}
-
-func (r *chunkedReader) GetFrameByID(id int64) (p []byte, err error) {
-	objPath := objectPath(r.kind, r.hash, id)
+func (r *readEnv) GetFrameByIndex(index seekable.FrameOffsetEntry) (p []byte, err error) {
+	objPath := objectPath(r.kind, r.hash, index.ID)
 	err = r.db.View(
 		func(txn *badger.Txn) error {
 			item, err := txn.Get(objPath)
@@ -335,6 +239,7 @@ func New(ctx context.Context, path string) (*BadgerCache, error) {
 	opts := badger.DefaultOptions(path)
 	opts.ValueThreshold = 4096
 	opts.Compression = options.None
+	opts.BlockCacheSize = 512 << 20
 
 	db, err := badger.Open(opts)
 	if err != nil {
@@ -362,20 +267,51 @@ func New(ctx context.Context, path string) (*BadgerCache, error) {
 }
 
 func (c *BadgerCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
-	r, err := NewChunkedReader(ctx, c.logger, c.db, c.dec, kind, hash)
+	env := &readEnv{
+		kind: kind,
+		hash: hash,
+		db:   c.db,
+	}
+
+	r, err := seekable.NewReader(nil, c.dec, seekable.WithRLogger(c.logger), seekable.WithREnvironment(env))
 	if err != nil {
 		return false, 0, err
 	}
-	return true, r.sd.Size(), nil
+
+	size, err := r.Seek(0, io.SeekEnd)
+	if err != nil {
+		return false, 0, err
+	}
+
+	return true, size, nil
 }
 
 func (c *BadgerCache) Get(ctx context.Context, kind cache.EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
-	r, err := NewChunkedReader(ctx, c.logger, c.db, c.dec, kind, hash)
+	env := &readEnv{
+		kind: kind,
+		hash: hash,
+		db:   c.db,
+	}
+
+	r, err := seekable.NewReader(nil, c.dec, seekable.WithRLogger(c.logger), seekable.WithREnvironment(env))
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return io.NopCloser(r), r.sd.Size() - offset, nil
+	if offset > 0 || length > 0 {
+		return io.NopCloser(io.NewSectionReader(r, offset, length)), length - offset, nil
+	} else {
+		size, err := r.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		_, err = r.Seek(0, io.SeekStart)
+		if err != nil {
+			return nil, 0, err
+		}
+		return io.NopCloser(r), size, nil
+	}
 }
 
 func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {

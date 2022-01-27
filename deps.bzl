@@ -839,8 +839,8 @@ def go_dependencies():
     go_repository(
         name = "com_github_savetherbtz_zstd_seekable_format_go",
         importpath = "github.com/SaveTheRbtz/zstd-seekable-format-go",
-        sum = "h1:raCREwYiQUb/n8NIn9KQTsE1mqnfOQ8L/kl4cf02jOM=",
-        version = "v0.0.0-20220127020425-bc1debbaf117",
+        sum = "h1:Z7R6x4H5K+qDxhvkhTlVDwL9/yBm8bAUYIxj+Wc0/BE=",
+        version = "v0.0.0-20220127073547-272f866078a2",
     )
 
     go_repository(
