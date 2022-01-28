@@ -16,13 +16,15 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v2.0.5+incompatible // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.2
+	github.com/ipfs/go-ipfs-http-client v0.2.0
+	github.com/ipfs/go-path v0.2.1 // indirect
+	github.com/ipfs/interface-go-ipfs-core v0.5.2
 	github.com/klauspost/compress v1.14.2
 	github.com/mostynb/go-grpc-compression v1.1.6
 	github.com/pierrec/lz4 v2.6.0+incompatible // indirect
 	github.com/reusee/fastcdc-go v0.2.1-0.20201121153712-1756352c2ae7
 	github.com/spf13/cobra v1.1.3
 	github.com/stretchr/testify v1.7.0
-	go.opencensus.io v0.23.0 // indirect
 	go.uber.org/multierr v1.7.0
 	go.uber.org/zap v1.20.0
 	golang.org/x/net v0.0.0-20220121210141-e204ce36a2ba // indirect
@@ -32,5 +34,4 @@ require (
 	google.golang.org/api v0.40.0
 	google.golang.org/genproto v0.0.0-20210226172003-ab064af71705
 	google.golang.org/grpc v1.36.0
-	google.golang.org/protobuf v1.27.1 // indirect
 )

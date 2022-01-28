@@ -44,12 +44,12 @@ func TestEndToEnd(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("t1t2"), buf)
 
-	// r, m, err = c.Get(ctx, cache.CAS, "h1", 1, 2)
-	// assert.NoError(t, err)
-	// assert.Equal(t, int64(2), m)
-	// buf, err = io.ReadAll(r)
-	// assert.NoError(t, err)
-	// assert.Equal(t, []byte("1t"), buf)
+	r, m, err = c.Get(ctx, cache.CAS, "h1", 1, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), m)
+	buf, err = io.ReadAll(r)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("1t"), buf)
 
 	err = r.Close()
 	assert.NoError(t, err)
@@ -89,6 +89,7 @@ func TestParallel(t *testing.T) {
 			assert.NoError(t, err)
 
 			b, size, err := c.Contains(ctx, cache.AC, key)
+			assert.NoError(t, err)
 			assert.True(t, b)
 			assert.Equal(t, int64(len(source)), size)
 
@@ -135,10 +136,13 @@ func TestBig(t *testing.T) {
 	assert.NoError(t, err)
 
 	b, size, err := c.Contains(ctx, cache.AC, key)
+	assert.NoError(t, err)
 	assert.True(t, b)
 	assert.Equal(t, int64(len(source)), size)
 
-	r0, size, err := c.Get(ctx, cache.AC, key, 0, int64(len(source)))
+	r0, size, err := c.Get(ctx, cache.AC, key, 0, -1)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(len(source)), size)
 	tt := make([]byte, 10)
 	ten, err := io.ReadFull(r0, tt)
 	assert.NoError(t, err)
