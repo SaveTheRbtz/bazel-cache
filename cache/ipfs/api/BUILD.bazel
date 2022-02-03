@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "api",
+    srcs = ["api.go"],
+    importpath = "github.com/znly/bazel-cache/cache/ipfs/api",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_ipfs_go_ipfs//core",
+        "@com_github_ipfs_go_ipfs//core/coreapi",
+        "@com_github_ipfs_go_ipfs//core/node/libp2p",
+        "@com_github_ipfs_go_ipfs//plugin/loader",
+        "@com_github_ipfs_go_ipfs//repo",
+        "@com_github_ipfs_go_ipfs//repo/fsrepo",
+        "@com_github_ipfs_go_ipfs_config//:go-ipfs-config",
+        "@com_github_ipfs_go_path//:go-path",
+        "@com_github_ipfs_go_unixfs//:go-unixfs",
+        "@com_github_ipfs_interface_go_ipfs_core//:interface-go-ipfs-core",
+        "@com_github_ipfs_interface_go_ipfs_core//options",
+        "@com_github_mitchellh_go_homedir//:go-homedir",
+    ],
+)

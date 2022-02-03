@@ -1,4 +1,4 @@
-package badger
+package ipfs
 
 import (
 	"context"
@@ -11,29 +11,27 @@ import (
 
 	seekable "github.com/SaveTheRbtz/zstd-seekable-format-go"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/ipfs/go-cid"
 	chunker "github.com/ipfs/go-ipfs-chunker"
-	ipfshttp "github.com/ipfs/go-ipfs-http-client"
 	ipld "github.com/ipfs/go-ipld-format"
-	dag "github.com/ipfs/go-merkledag"
 	mfs "github.com/ipfs/go-mfs"
-	fs "github.com/ipfs/go-unixfs"
 	ufsHelpers "github.com/ipfs/go-unixfs/importer/helpers"
 	ufsDAG "github.com/ipfs/go-unixfs/importer/trickle"
 	ufsIO "github.com/ipfs/go-unixfs/io"
+	icore "github.com/ipfs/interface-go-ipfs-core"
 	"github.com/klauspost/compress/zstd"
 	fastcdc "github.com/reusee/fastcdc-go"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
 	"github.com/znly/bazel-cache/cache"
+	"github.com/znly/bazel-cache/cache/ipfs/api"
 )
 
-const Scheme = "badger"
+const Scheme = "ipfs"
 
 func init() {
 	cache.RegisterCache(Scheme, func(ctx context.Context, uri *url.URL) (cache.Cache, error) {
-		return New(ctx)
+		return New(ctx, uri.Path)
 	})
 }
 
@@ -90,7 +88,7 @@ type chunkedWriter struct {
 
 	totalSize int
 
-	ipfsAPI *ipfshttp.HttpApi
+	ipfsAPI icore.CoreAPI
 	logger  *zap.Logger
 	root    *mfs.Root
 }
@@ -99,7 +97,7 @@ func objectPath(kind cache.EntryKind, hash string) string {
 	return fmt.Sprintf("%s/%s", kind, hash)
 }
 
-func NewChunkedWriter(ctx context.Context, logger *zap.Logger, root *mfs.Root, ipfsAPI *ipfshttp.HttpApi, enc seekable.ZSTDEncoder, kind cache.EntryKind, hash string, size int64) (*chunkedWriter, error) {
+func NewChunkedWriter(ctx context.Context, logger *zap.Logger, root *mfs.Root, ipfsAPI icore.CoreAPI, enc seekable.ZSTDEncoder, kind cache.EntryKind, hash string, size int64) (*chunkedWriter, error) {
 	var err error
 	wCtx, cancel := context.WithCancel(ctx)
 
@@ -127,7 +125,7 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, root *mfs.Root, i
 		root:    root,
 	}
 
-	w.spl, err = fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 32 * 1024, MaxSize: 127 * 1024})
+	w.spl, err = fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 256 * 1024, MaxSize: 1 * 1024 * 1024})
 	if err != nil {
 		cancel()
 		_ = pw.CloseWithError(err)
@@ -201,7 +199,10 @@ func (w *chunkedWriter) Close() (err error) {
 		err = multierr.Append(err, res.err)
 		if res.err == nil {
 			w.logger.Info("finished", zap.Stringer("cid", res.r.Cid()), zap.String("hash", w.hash))
-			pErr := mfs.PutNode(w.root, objectPath(w.kind, w.hash), res.r)
+			path := objectPath(w.kind, w.hash)
+			pErr := mfs.PutNode(w.root, path, res.r)
+			err = multierr.Append(err, pErr)
+			_, pErr = mfs.FlushPath(w.ctx, w.root, path)
 			err = multierr.Append(err, pErr)
 		}
 		err = multierr.Append(err, w.pr.Close())
@@ -219,7 +220,7 @@ func (w *chunkedWriter) Write(p []byte) (n int, err error) {
 	return
 }
 
-type BadgerCache struct {
+type IPFSCache struct {
 	cache.Cache
 
 	logger *zap.Logger
@@ -227,11 +228,11 @@ type BadgerCache struct {
 	enc *zstd.Encoder
 	dec *zstd.Decoder
 
-	ipfsAPI *ipfshttp.HttpApi
+	ipfsAPI icore.CoreAPI
 	root    *mfs.Root
 }
 
-func New(ctx context.Context) (*BadgerCache, error) {
+func New(ctx context.Context, repoRoot string) (*IPFSCache, error) {
 	logger := ctxzap.Extract(ctx)
 
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedFastest))
@@ -244,15 +245,12 @@ func New(ctx context.Context) (*BadgerCache, error) {
 		return nil, err
 	}
 
-	ipfsAPI, err := ipfshttp.NewLocalApi()
+	ipfsAPI, repo, err := api.New(ctx, repoRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	root, err := mfs.NewRoot(ctx, ipfsAPI.Dag(), dag.NodeWithData(fs.FolderPBData()), func(ctx context.Context, c cid.Cid) error {
-		logger.Debug("published", zap.Stringer("cid", c))
-		return nil
-	})
+	root, err := NewRoot(ctx, repo, ipfsAPI.Dag())
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +259,7 @@ func New(ctx context.Context) (*BadgerCache, error) {
 		mfs.Mkdir(root, objectPath(d, ""), mfs.MkdirOpts{Flush: true})
 	}
 
-	return &BadgerCache{
+	return &IPFSCache{
 		ipfsAPI: ipfsAPI,
 		root:    root,
 
@@ -272,7 +270,7 @@ func New(ctx context.Context) (*BadgerCache, error) {
 	}, nil
 }
 
-func (c *BadgerCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
+func (c *IPFSCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
 	fsn, err := mfs.Lookup(c.root, objectPath(kind, hash))
 	if err != nil {
 		return false, 0, err
@@ -301,7 +299,7 @@ func (c *BadgerCache) Contains(ctx context.Context, kind cache.EntryKind, hash s
 	return true, size, nil
 }
 
-func (c *BadgerCache) Get(ctx context.Context, kind cache.EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
+func (c *IPFSCache) Get(ctx context.Context, kind cache.EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
 	fsn, err := mfs.Lookup(c.root, objectPath(kind, hash))
 	if err != nil {
 		return nil, 0, err
@@ -338,7 +336,7 @@ func (c *BadgerCache) Get(ctx context.Context, kind cache.EntryKind, hash string
 	}
 }
 
-func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
+func (c *IPFSCache) Put(ctx context.Context, kind cache.EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
 	if offset > 0 {
 		return nil, fmt.Errorf("offsets are not supported yet")
 	}
@@ -350,7 +348,7 @@ func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string
 	return w, nil
 }
 
-func (c *BadgerCache) Close() (err error) {
+func (c *IPFSCache) Close() (err error) {
 	multierr.Append(err, c.root.Close())
 	return err
 }

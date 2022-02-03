@@ -1,17 +1,19 @@
-package badger_test
+package ipfs_test
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
 	"github.com/znly/bazel-cache/cache"
-	"github.com/znly/bazel-cache/cache/badger"
+	"github.com/znly/bazel-cache/cache/ipfs"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
@@ -24,7 +26,8 @@ func TestEndToEnd(t *testing.T) {
 	assert.NoError(t, err)
 	ctxzap.ToContext(ctx, logger)
 
-	c, err := badger.New(ctx)
+	tmpDir := os.Getenv("TEST_TMPDIR")
+	c, err := ipfs.New(ctx, filepath.Join(tmpDir, "i0"))
 	assert.NoError(t, err)
 	defer c.Close()
 
@@ -64,7 +67,8 @@ func TestParallel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	c, err := badger.New(ctx)
+	tmpDir := os.Getenv("TEST_TMPDIR")
+	c, err := ipfs.New(ctx, filepath.Join(tmpDir, "i1"))
 	assert.NoError(t, err)
 
 	for i := 0; i <= 100; i++ {
@@ -115,7 +119,9 @@ func TestParallel(t *testing.T) {
 func TestBig(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	c, err := badger.New(ctx)
+
+	tmpDir := os.Getenv("TEST_TMPDIR")
+	c, err := ipfs.New(ctx, filepath.Join(tmpDir, "i3"))
 	assert.NoError(t, err)
 
 	key := "key"
