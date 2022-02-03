@@ -5,22 +5,26 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/znly/bazel-cache/cache"
 	"github.com/znly/bazel-cache/cache/badger"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
 func TestEndToEnd(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	tmpDir := os.Getenv("TEST_TMPDIR")
-	c, err := badger.New(ctx, filepath.Join(tmpDir, "b1"))
+	logger, err := zap.NewDevelopment()
+	assert.NoError(t, err)
+	ctxzap.ToContext(ctx, logger)
+
+	c, err := badger.New(ctx)
 	assert.NoError(t, err)
 	defer c.Close()
 
@@ -30,6 +34,7 @@ func TestEndToEnd(t *testing.T) {
 	n, err := w.Write([]byte("t1"))
 	assert.Equal(t, 2, n)
 	assert.NoError(t, err)
+
 	n, err = w.Write([]byte("t2"))
 	assert.Equal(t, 2, n)
 	assert.NoError(t, err)
@@ -59,8 +64,7 @@ func TestParallel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	tmpDir := os.Getenv("TEST_TMPDIR")
-	c, err := badger.New(ctx, filepath.Join(tmpDir, "b2"))
+	c, err := badger.New(ctx)
 	assert.NoError(t, err)
 
 	for i := 0; i <= 100; i++ {
@@ -111,9 +115,7 @@ func TestParallel(t *testing.T) {
 func TestBig(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-
-	tmpDir := os.Getenv("TEST_TMPDIR")
-	c, err := badger.New(ctx, filepath.Join(tmpDir, "b3"))
+	c, err := badger.New(ctx)
 	assert.NoError(t, err)
 
 	key := "key"

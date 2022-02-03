@@ -1,30 +1,30 @@
 package badger
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"sync"
-	"time"
 
 	seekable "github.com/SaveTheRbtz/zstd-seekable-format-go"
-	badger "github.com/dgraph-io/badger/v3"
-	options "github.com/dgraph-io/badger/v3/options"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/ipfs/go-cid"
+	chunker "github.com/ipfs/go-ipfs-chunker"
+	ipfshttp "github.com/ipfs/go-ipfs-http-client"
+	ipld "github.com/ipfs/go-ipld-format"
+	dag "github.com/ipfs/go-merkledag"
+	mfs "github.com/ipfs/go-mfs"
+	fs "github.com/ipfs/go-unixfs"
+	ufsHelpers "github.com/ipfs/go-unixfs/importer/helpers"
+	ufsDAG "github.com/ipfs/go-unixfs/importer/trickle"
+	ufsIO "github.com/ipfs/go-unixfs/io"
 	"github.com/klauspost/compress/zstd"
-
-	// TODO: use standard IPFS Splitter.
 	fastcdc "github.com/reusee/fastcdc-go"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
-
-	ipfshttp "github.com/ipfs/go-ipfs-http-client"
-	iface "github.com/ipfs/interface-go-ipfs-core"
-	ifaceOpts "github.com/ipfs/interface-go-ipfs-core/options"
-	ifacePath "github.com/ipfs/interface-go-ipfs-core/path"
 
 	"github.com/znly/bazel-cache/cache"
 )
@@ -33,8 +33,16 @@ const Scheme = "badger"
 
 func init() {
 	cache.RegisterCache(Scheme, func(ctx context.Context, uri *url.URL) (cache.Cache, error) {
-		return New(ctx, uri.Path)
+		return New(ctx)
 	})
+}
+
+var _ chunker.Splitter = (*chunkedWriter)(nil)
+
+// TODO: use generics
+type result struct {
+	r   ipld.Node
+	err error
 }
 
 // onceError is an object that will only store an error once.
@@ -65,9 +73,11 @@ type chunkedWriter struct {
 	hash string
 	size int64
 
-	pr      *io.PipeReader
-	pw      *io.PipeWriter
-	chunker *fastcdc.Chunker
+	pr *io.PipeReader
+	pw *io.PipeWriter
+
+	spl          *fastcdc.Chunker
+	doneChunking bool
 
 	se        seekable.Encoder
 	numChunks int64
@@ -75,29 +85,26 @@ type chunkedWriter struct {
 	cancel context.CancelFunc
 
 	once     *sync.Once
-	done     chan struct{}
+	node     chan result
 	closeErr *onceError
 
 	totalSize int
 
 	ipfsAPI *ipfshttp.HttpApi
-	db      *badger.DB
+	logger  *zap.Logger
+	root    *mfs.Root
 }
 
-func objectPath(kind cache.EntryKind, hash string, index int64) []byte {
-	return []byte(fmt.Sprintf("%s/%s.%d", kind, hash, index))
+func objectPath(kind cache.EntryKind, hash string) string {
+	return fmt.Sprintf("%s/%s", kind, hash)
 }
 
-func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, ipfsAPI *ipfshttp.HttpApi, enc seekable.ZSTDEncoder, kind cache.EntryKind, hash string, size int64) (*chunkedWriter, error) {
+func NewChunkedWriter(ctx context.Context, logger *zap.Logger, root *mfs.Root, ipfsAPI *ipfshttp.HttpApi, enc seekable.ZSTDEncoder, kind cache.EntryKind, hash string, size int64) (*chunkedWriter, error) {
+	var err error
 	wCtx, cancel := context.WithCancel(ctx)
 
+	// TODO: limit pipe memory consumption.
 	pr, pw := io.Pipe()
-	chunker, err := fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 32 * 1024, MaxSize: 127 * 1024})
-	if err != nil {
-		cancel()
-		_ = pw.CloseWithError(err)
-		return nil, err
-	}
 
 	w := chunkedWriter{
 		ctx: wCtx,
@@ -106,18 +113,25 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, ip
 		hash: hash,
 		size: size,
 
-		chunker: chunker,
-		pw:      pw,
-		pr:      pr,
-		done:    make(chan struct{}),
-		once:    &sync.Once{},
+		pw:   pw,
+		pr:   pr,
+		node: make(chan result, 1),
+		once: &sync.Once{},
 
 		cancel: cancel,
 
 		closeErr: &onceError{},
 
 		ipfsAPI: ipfsAPI,
-		db:      db,
+		logger:  logger,
+		root:    root,
+	}
+
+	w.spl, err = fastcdc.NewChunker(pr, fastcdc.Options{AverageSize: 32 * 1024, MaxSize: 127 * 1024})
+	if err != nil {
+		cancel()
+		_ = pw.CloseWithError(err)
+		return nil, err
 	}
 
 	w.se, err = seekable.NewEncoder(enc, seekable.WithWLogger(logger))
@@ -128,10 +142,9 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, ip
 	}
 
 	go func() {
-		err = w.syncChunks()
-		if err != nil {
-			cancel()
-		}
+		node, err := w.dagBuilder()
+		w.node <- result{r: node, err: err}
+		close(w.node)
 	}()
 	go func() {
 		<-w.ctx.Done()
@@ -141,113 +154,57 @@ func NewChunkedWriter(ctx context.Context, logger *zap.Logger, db *badger.DB, ip
 	return &w, nil
 }
 
-type readEnv struct {
-	ctx context.Context
-
-	kind cache.EntryKind
-	hash string
-
-	ipfsAPI *ipfshttp.HttpApi
-	db      *badger.DB
+func (w *chunkedWriter) Reader() io.Reader {
+	return w.pr
 }
 
-func (r *readEnv) ReadFooter() ([]byte, error) {
-	return r.GetFrameByIndex(seekable.FrameOffsetEntry{ID: -1})
-}
-
-func (r *readEnv) ReadSkipFrame(int64) ([]byte, error) {
-	return r.ReadFooter()
-}
-
-func (r *readEnv) GetFrameByIndex(index seekable.FrameOffsetEntry) (p []byte, err error) {
-	objPath := objectPath(r.kind, r.hash, index.ID)
-	err = r.db.View(
-		func(txn *badger.Txn) error {
-			item, err := txn.Get(objPath)
-			if err != nil {
-				return err
-			}
-
-			valueCopy, err := item.ValueCopy(nil)
-			if err != nil {
-				return err
-			}
-			if index.ID == -1 {
-				p = valueCopy
-				return nil
-			}
-
-			blockReader, err := r.ipfsAPI.Block().Get(r.ctx, ifacePath.New(string(valueCopy)))
-			if err != nil {
-				return err
-			}
-			p, err = io.ReadAll(blockReader)
-			return err
-		})
+func (w *chunkedWriter) NextBytes() ([]byte, error) {
+	chunk, err := w.spl.Next()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get: %s: %+v", objPath, err)
+		if errors.Is(err, io.EOF) {
+			if w.doneChunking {
+				return nil, io.EOF
+			}
+			w.doneChunking = true
+
+			buf, err := w.se.EndStream()
+			if err != nil {
+				return nil, err
+			}
+			return buf, io.EOF
+		}
+		return nil, err
 	}
-	return
+	return w.se.Encode(chunk.Data)
 }
 
-func (w *chunkedWriter) syncChunks() (err error) {
-	defer close(w.done)
-	for {
-		var chunk fastcdc.Chunk
-
-		chunk, err = w.chunker.Next()
-		if err == nil {
-			var buf []byte
-
-			buf, err = w.se.Encode(chunk.Data)
-			if err != nil {
-				return err
-			}
-
-			var stat iface.BlockStat
-			stat, err = w.ipfsAPI.Block().Put(w.ctx, bytes.NewReader(buf),
-				func(opts *ifaceOpts.BlockPutSettings) error {
-					opts.Codec = "raw"
-					return nil
-				})
-			if err != nil {
-				return err
-			}
-
-			e := badger.NewEntry([]byte(objectPath(w.kind, w.hash, w.numChunks)), []byte(stat.Path().String())).WithTTL(7 * 24 * time.Hour)
-			err = w.db.Update(func(txn *badger.Txn) error {
-				return txn.SetEntry(e)
-			})
-			if err != nil {
-				return
-			}
-			w.numChunks++
-		} else {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return
-		}
+func (w *chunkedWriter) dagBuilder() (ipld.Node, error) {
+	params := &ufsHelpers.DagBuilderParams{
+		Maxlinks: math.MaxInt, Dagserv: w.ipfsAPI.Dag(), RawLeaves: true,
 	}
+	builder, err := params.New(w)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := ufsDAG.Layout(builder)
+	if err != nil {
+		return nil, err
+	}
+	return node, err
 }
 
 func (w *chunkedWriter) Close() (err error) {
 	w.once.Do(func() {
 		err = multierr.Append(err, w.pw.Close())
-		<-w.done
+		res := <-w.node
+		err = multierr.Append(err, res.err)
+		if res.err == nil {
+			w.logger.Info("finished", zap.Stringer("cid", res.r.Cid()), zap.String("hash", w.hash))
+			pErr := mfs.PutNode(w.root, objectPath(w.kind, w.hash), res.r)
+			err = multierr.Append(err, pErr)
+		}
 		err = multierr.Append(err, w.pr.Close())
-
-		err = multierr.Append(err, w.db.Update(func(txn *badger.Txn) error {
-			// TODO: move ttl to params
-			buf, err := w.se.EndStream()
-			if err != nil {
-				return err
-			}
-
-			e := badger.NewEntry(objectPath(w.kind, w.hash, -1), buf).WithTTL(7 * 24 * time.Hour)
-			return txn.SetEntry(e)
-		}))
-
 		w.cancel()
 		w.closeErr.Store(err)
 	})
@@ -271,20 +228,11 @@ type BadgerCache struct {
 	dec *zstd.Decoder
 
 	ipfsAPI *ipfshttp.HttpApi
-	db      *badger.DB
+	root    *mfs.Root
 }
 
-func New(ctx context.Context, path string) (*BadgerCache, error) {
-	opts := badger.DefaultOptions(path)
-	opts.ValueThreshold = 4096
-	opts.Compression = options.ZSTD
-	opts.ZSTDCompressionLevel = 3
-	opts.BlockCacheSize = 4 << 30
-
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, err
-	}
+func New(ctx context.Context) (*BadgerCache, error) {
+	logger := ctxzap.Extract(ctx)
 
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedFastest))
 	if err != nil {
@@ -301,11 +249,23 @@ func New(ctx context.Context, path string) (*BadgerCache, error) {
 		return nil, err
 	}
 
-	return &BadgerCache{
-		db:      db,
-		ipfsAPI: ipfsAPI,
+	root, err := mfs.NewRoot(ctx, ipfsAPI.Dag(), dag.NodeWithData(fs.FolderPBData()), func(ctx context.Context, c cid.Cid) error {
+		logger.Debug("published", zap.Stringer("cid", c))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
-		logger: ctxzap.Extract(ctx),
+	for _, d := range []cache.EntryKind{cache.AC, cache.CAS} {
+		mfs.Mkdir(root, objectPath(d, ""), mfs.MkdirOpts{Flush: true})
+	}
+
+	return &BadgerCache{
+		ipfsAPI: ipfsAPI,
+		root:    root,
+
+		logger: logger,
 
 		enc: enc,
 		dec: dec,
@@ -313,17 +273,22 @@ func New(ctx context.Context, path string) (*BadgerCache, error) {
 }
 
 func (c *BadgerCache) Contains(ctx context.Context, kind cache.EntryKind, hash string) (bool, int64, error) {
-	env := &readEnv{
-		ctx: ctx,
-
-		kind: kind,
-		hash: hash,
-
-		ipfsAPI: c.ipfsAPI,
-		db:      c.db,
+	fsn, err := mfs.Lookup(c.root, objectPath(kind, hash))
+	if err != nil {
+		return false, 0, err
 	}
 
-	r, err := seekable.NewReader(nil, c.dec, seekable.WithRLogger(c.logger), seekable.WithREnvironment(env))
+	node, err := fsn.GetNode()
+	if err != nil {
+		return false, 0, err
+	}
+
+	dagReader, err := ufsIO.NewDagReader(ctx, node, c.ipfsAPI.Dag())
+	if err != nil {
+		return false, 0, err
+	}
+
+	r, err := seekable.NewReader(dagReader, c.dec, seekable.WithRLogger(c.logger))
 	if err != nil {
 		return false, 0, err
 	}
@@ -337,17 +302,22 @@ func (c *BadgerCache) Contains(ctx context.Context, kind cache.EntryKind, hash s
 }
 
 func (c *BadgerCache) Get(ctx context.Context, kind cache.EntryKind, hash string, offset, length int64) (io.ReadCloser, int64, error) {
-	env := &readEnv{
-		ctx: ctx,
-
-		kind: kind,
-		hash: hash,
-
-		ipfsAPI: c.ipfsAPI,
-		db:      c.db,
+	fsn, err := mfs.Lookup(c.root, objectPath(kind, hash))
+	if err != nil {
+		return nil, 0, err
 	}
 
-	r, err := seekable.NewReader(nil, c.dec, seekable.WithRLogger(c.logger), seekable.WithREnvironment(env))
+	node, err := fsn.GetNode()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dagReader, err := ufsIO.NewDagReader(ctx, node, c.ipfsAPI.Dag())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	r, err := seekable.NewReader(dagReader, c.dec, seekable.WithRLogger(c.logger))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -373,13 +343,14 @@ func (c *BadgerCache) Put(ctx context.Context, kind cache.EntryKind, hash string
 		return nil, fmt.Errorf("offsets are not supported yet")
 	}
 
-	w, err := NewChunkedWriter(ctx, c.logger, c.db, c.ipfsAPI, c.enc, kind, hash, size)
+	w, err := NewChunkedWriter(ctx, c.logger, c.root, c.ipfsAPI, c.enc, kind, hash, size)
 	if err != nil {
 		return nil, err
 	}
 	return w, nil
 }
 
-func (c *BadgerCache) Close() error {
-	return c.db.Close()
+func (c *BadgerCache) Close() (err error) {
+	multierr.Append(err, c.root.Close())
+	return err
 }
