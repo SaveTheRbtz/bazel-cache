@@ -100,10 +100,6 @@ func (c *HedgedCache) Get(ctx context.Context, kind EntryKind, hash string, offs
 }
 
 func (c *HedgedCache) Put(ctx context.Context, kind EntryKind, hash string, size, offset int64) (io.WriteCloser, error) {
-	type putResult struct {
-		wc   io.WriteCloser
-		size int64
-	}
 	v, err := hedged.Do(ctx, c.timeout, func(ctx context.Context) (interface{}, error) {
 		return c.cache.Put(ctx, kind, hash, size, offset)
 	})
